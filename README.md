@@ -1,5 +1,6 @@
 # TrustBoundary: Dual-Boundary LLM Safety & Red-Teaming Benchmark Lab
 
+[![CI](https://github.com/master72o/trustboundary-ai-security-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/master72o/trustboundary-ai-security-lab/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Tests: 19/19 Passing](https://img.shields.io/badge/tests-19%2F19%20passing-brightgreen.svg)]()
