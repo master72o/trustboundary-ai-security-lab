@@ -6,6 +6,7 @@ dangerous command mitigation, and tool invocation sandboxing.
 
 import re
 import base64
+import urllib.parse
 from typing import Tuple, Optional, Dict, Any, List
 
 
@@ -33,6 +34,20 @@ class EgressGuardrail:
         r"\b(truncate|delete\s+from)\s+[a-z_]+(?!\s+where)",
         r"\b(os\.system|subprocess\.Popen|eval\(|exec\()",
         r"\bcurl\s+.*\|\s*(bash|sh)\b",
+    ]
+
+    # Path traversal and SSRF cloud metadata / internal network probing patterns
+    PATH_TRAVERSAL_AND_SSRF_PATTERNS = [
+        (r"(\.\./|\.\.\\){2,}", "Directory Path Traversal"),
+        (r"(/etc/passwd|/etc/shadow|c:\\windows\\system32)", "Sensitive Host File Access"),
+        (r"169\.254\.169\.254", "Cloud Metadata SSRF Probe"),
+        (r"https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?", "Internal Loopback SSRF Probe"),
+    ]
+
+    # Sensitive PII patterns (SSN, Credit Card, Email)
+    PII_PATTERNS = [
+        (r"\b\d{3}-\d{2}-\d{4}\b", "US_SSN"),
+        (r"\b(?:\d{4}[-\s]?){3}\d{4}\b", "CREDIT_CARD"),
     ]
 
     # Known system prompt leak indicators
@@ -82,7 +97,29 @@ class EgressGuardrail:
         except Exception:
             pass
 
+        # 5. Reversed token string (e.g. "99_AHPLA_YRANAC")
+        if len(token) >= 6 and token[::-1].lower() in output_text.lower():
+            return True
+
+        # 6. URL percent-encoded token
+        url_encoded = urllib.parse.quote(token)
+        if url_encoded != token and url_encoded.lower() in output_text.lower():
+            return True
+
         return False
+
+    @classmethod
+    def redact_pii(cls, output_text: str) -> Tuple[str, List[str]]:
+        """
+        Detects and scrubs sensitive PII (SSNs, Credit Cards) from model outputs.
+        """
+        redacted = output_text
+        detected_pii = []
+        for pat, label in cls.PII_PATTERNS:
+            if re.search(pat, redacted):
+                redacted = re.sub(pat, f"[REDACTED_{label}]", redacted)
+                detected_pii.append(label)
+        return redacted, detected_pii
 
     @classmethod
     def sanitize_secrets(cls, output_text: str, canary_token: Optional[str] = None) -> Tuple[str, List[str]]:
@@ -122,6 +159,10 @@ class EgressGuardrail:
         for pat in cls.DESTRUCTIVE_TOOL_COMMANDS:
             if re.search(pat, args_str, re.IGNORECASE):
                 return True, f"Egress_Blocked: Destructive shell or database payload in tool '{tool_name}' arguments"
+
+        for pat, threat_desc in cls.PATH_TRAVERSAL_AND_SSRF_PATTERNS:
+            if re.search(pat, args_str, re.IGNORECASE):
+                return True, f"Egress_Blocked: {threat_desc} detected in tool '{tool_name}' arguments"
 
         # Check for unapproved high-privilege tools
         disallowed_tools = ["execute_terminal_raw", "drop_db_cluster", "exfiltrate_network"]

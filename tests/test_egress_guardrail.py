@@ -49,3 +49,30 @@ def test_inspect_tool_execution_safe():
     blocked, reason = EgressGuardrail.inspect_tool_execution(tool_name, args)
     assert blocked is False
     assert "verified within safety boundary" in reason
+
+
+def test_detect_reversed_canary_and_pii_redaction():
+    token = "CANARY_SECRET_42"
+    reversed_out = f"Reversed token: {token[::-1]}"
+    assert EgressGuardrail.detect_canary_leak(reversed_out, token) is True
+
+    pii_text = "Customer SSN is 123-45-6789 and card is 4111-2222-3333-4444."
+    redacted, pii_types = EgressGuardrail.redact_pii(pii_text)
+    assert "[REDACTED_US_SSN]" in redacted
+    assert "[REDACTED_CREDIT_CARD]" in redacted
+    assert "123-45-6789" not in redacted
+    assert set(pii_types) == {"US_SSN", "CREDIT_CARD"}
+
+
+def test_inspect_tool_ssrf_and_path_traversal():
+    blocked_ssrf, reason_ssrf = EgressGuardrail.inspect_tool_execution(
+        "http_get", {"url": "http://169.254.169.254/latest/meta-data/iam/"}
+    )
+    assert blocked_ssrf is True
+    assert "SSRF" in reason_ssrf
+
+    blocked_trav, reason_trav = EgressGuardrail.inspect_tool_execution(
+        "read_file", {"path": "../../../../etc/passwd"}
+    )
+    assert blocked_trav is True
+    assert "Traversal" in reason_trav or "Host File" in reason_trav
